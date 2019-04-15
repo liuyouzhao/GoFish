@@ -11,7 +11,6 @@ Timer::Timer(TimerListener *tl)
 
 void Timer::timerEvent(QTimerEvent *event)
 {
-    cout << "Timer ID:" << event->timerId();
-    mpCallback->onTimerCallback(this->timerId);
-    killTimer(timerId);
+    mpCallback->onTimerCallback();
+    killTimer(event->timerId());
 }

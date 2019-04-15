@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1098</width>
-    <height>747</height>
+    <width>1066</width>
+    <height>729</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -19,18 +19,10 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1098</width>
+     <width>1066</width>
      <height>22</height>
     </rect>
    </property>
-   <widget class="QMenu" name="menuRestart">
-    <property name="title">
-     <string>Game</string>
-    </property>
-    <addaction name="actionStart"/>
-    <addaction name="actionExit"/>
-   </widget>
-   <addaction name="menuRestart"/>
   </widget>
   <widget class="QToolBar" name="mainToolBar">
    <attribute name="toolBarArea">
@@ -41,16 +33,6 @@
    </attribute>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
-  <action name="actionStart">
-   <property name="text">
-    <string>Start</string>
-   </property>
-  </action>
-  <action name="actionExit">
-   <property name="text">
-    <string>Exit</string>
-   </property>
-  </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <resources/>

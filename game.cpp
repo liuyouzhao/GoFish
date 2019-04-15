@@ -4,6 +4,8 @@
 
 using namespace std;
 
+#define WAIT_SECONDS 1
+
 int AI::askNumber(vector<Card*> cards)
 {
     int hash[15] = {0};
@@ -32,15 +34,19 @@ int AI::askPlayer(vector<Player*> players)
     int maxIndex = 0;
     for(int i = 0; i < players.size(); i ++)
     {
+        if(i == playerId || i == this->lastAsked)
+            continue;
         if(maxPlayerCards < players[i]->cards.size())
         {
             maxPlayerCards = players[i]->cards.size();
             maxIndex = i;
         }
     }
-    return maxIndex;
-}
 
+    this->lastAsked = maxIndex;
+
+    return lastAsked;
+}
 
 Game::Game():
     currentTimerId(0),
@@ -48,48 +54,110 @@ Game::Game():
     winnerPlayer(-1),
     timer(this)
 {
+    char *cardsT[13] = {
+        "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"
+    };
+    for(int i = 0; i < 13; i ++)
+    {
+        cardTexts[i] = string(cardsT[i]);
+    }
+}
+
+void Game::nextPlayer()
+{
+    currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+    if(currentPlayerIndex == humanPlayerIndex)
+    {
+        requirePlayer = -1;
+        requireNumber = -1;
+        switchGameState(GS_PLAYER_ASKING_PLAYER);
+        waitPlayerMotion = true;
+    }
+    else
+    {
+        requirePlayer = players[currentPlayerIndex]->ai->askPlayer(players);
+        requireNumber = players[currentPlayerIndex]->ai->askNumber(players[currentPlayerIndex]->cards);
+        switchGameState(GS_ASKING);
+        if(requirePlayer != humanPlayerIndex)
+        {
+            timer.startTimeout(1000 * WAIT_SECONDS);
+        }
+        else
+        {
+            waitPlayerMotion = true;
+        }
+    }
+}
+
+void Game::againPlayer()
+{
+    if(currentPlayerIndex != humanPlayerIndex)
+    {
+        requirePlayer = players[currentPlayerIndex]->ai->askPlayer(players);
+        requireNumber = players[currentPlayerIndex]->ai->askNumber(players[currentPlayerIndex]->cards);
+        switchGameState(GS_ASKING);
+        if(requirePlayer != humanPlayerIndex)
+        {
+            timer.startTimeout(1000 * WAIT_SECONDS);
+        }
+        else
+        {
+            waitPlayerMotion = true;
+        }
+    }
+    else
+    {
+        requireNumber = -1;
+        requirePlayer = -1;
+        switchGameState(GS_PLAYER_ASKING_PLAYER);
+    }
+
 }
 
 /**
  * Timer driver
  * @brief Game::onTimerCallback
- * @param timerId
  */
-void Game::onTimerCallback(int timerId)
+void Game::onTimerCallback()
 {
+    waitPlayerMotion = false;
     switch(gameState)
     {
     case GS_ANSWERING_CARD:
-        gameState = GS_COLLECTING;
-        timer.startTimeout(1000 * 3);
+        switchGameState(GS_COLLECTING);
+        timer.startTimeout(1000 * WAIT_SECONDS);
         break;
     case GS_ANSWERING_FISH:
-        gameState = GS_FISHING;
-        timer.startTimeout(1000 * 3);
+        switchGameState(GS_FISHING);
+        timer.startTimeout(1000 * WAIT_SECONDS);
         break;
     case GS_ASKING:
     {
-        timer.startTimeout(1000 * 3);
-        vector<Card*> reqs = players[requirePlayer]->getRequiredCards(requireNumber);
-        if(reqs.size() == 0)
+        if(requirePlayer != humanPlayerIndex)
         {
-            /* Fish! */
-            gameState = GS_ANSWERING_FISH;
-        }
-        else
-        {
-            /* Give the cards */
-            gameState = GS_ANSWERING_CARD;
-            players[requirePlayer]->removeCards(reqs);
-            givingCards = reqs;
+            timer.startTimeout(1000 * WAIT_SECONDS);
+            vector<Card*> reqs = players[requirePlayer]->getRequiredCards(requireNumber);
+            if(reqs.size() == 0)
+            {
+                /* Fish! */
+                switchGameState(GS_ANSWERING_FISH);
+            }
+            else
+            {
+                /* Give the cards */
+                switchGameState(GS_ANSWERING_CARD);
+                players[requirePlayer]->removeCards(reqs);
+                givingCards = reqs;
+            }
         }
         break;
     }
     case GS_FISHING:
     {
         int randomCardIndex = rand() % this->tableCards.size();
-        this->removeTableCard(randomCardIndex);
+        Card *newCard = this->removeTableCard(randomCardIndex);
 
+        players[currentPlayerIndex]->tryIfWinCards(newCard);
         if(this->tableCards.size() == 0)
         {
             int maxCards = 0;
@@ -103,39 +171,38 @@ void Game::onTimerCallback(int timerId)
                 }
             }
             winnerPlayer = maxIndex;
-            gameState = GS_OVER;
+            switchGameState(GS_OVER);
             return;
         }
 
-        currentPlayerIndex = (currentPlayerIndex + 1) / players.size();
-        if(currentPlayerIndex == humanPlayerIndex)
-            gameState = GS_PLAYER_ASKING_PLAYER;
-        else
-            gameState = GS_ASKING;
+        nextPlayer();
         break;
     }
     case GS_COLLECTING:
-        gameState = GS_ASKING;
 
-        players[currentPlayerIndex]->tryIfWinCards(givingCards);
+
+        bool gotScore = players[currentPlayerIndex]->tryIfWinCards(givingCards);
         givingCards.clear();
 
         if(players[currentPlayerIndex]->cards.size() == 0)
         {
             winnerPlayer = currentPlayerIndex;
-            gameState = GS_OVER;
+            switchGameState(GS_OVER);
             return;
         }
 
-        requirePlayer = players[currentPlayerIndex]->ai->askPlayer(players);
-        requireNumber = players[currentPlayerIndex]->ai->askNumber(players[currentPlayerIndex]->cards);
-
-        if(requirePlayer != humanPlayerIndex)
+        if(!gotScore)
         {
-            timer.startTimeout(1000 * 3);
+            nextPlayer();
+        }
+        else
+        {
+            againPlayer();
         }
         break;
     }
+    if(gameState == GS_PLAYER_ASKING_CARD || gameState == GS_PLAYER_ASKING_PLAYER)
+        waitPlayerMotion = true;
 }
 
 /**
@@ -149,16 +216,18 @@ void Game::onClickPlayer(int playerId)
     switch(gameState)
     {
     case GS_PLAYER_ASKING_PLAYER:
+    case GS_PLAYER_ASKING_CARD:
     {
         if(playerId == humanPlayerIndex)
             return;
 
         requirePlayer = playerId;
-        gameState = GS_PLAYER_ASKING_CARD;
+        switchGameState(GS_PLAYER_ASKING_CARD);
         break;
     }
     }
 }
+
 void Game::onClickCard(int number)
 {
     cout << "onClickCard " << number << endl;
@@ -166,17 +235,17 @@ void Game::onClickCard(int number)
     {
     case GS_ASKING:
     {
-        timer.startTimeout(1000 * 3);
+        timer.startTimeout(1000 * WAIT_SECONDS);
         vector<Card*> reqs = players[requirePlayer]->getRequiredCards(requireNumber);
         if(reqs.size() == 0)
         {
             /* Fish! */
-            gameState = GS_ANSWERING_FISH;
+            switchGameState(GS_ANSWERING_FISH);
         }
         else
         {
             /* Give the cards */
-            gameState = GS_ANSWERING_CARD;
+            switchGameState(GS_ANSWERING_CARD);
             players[requirePlayer]->removeCards(reqs);
             givingCards = reqs;
         }
@@ -185,8 +254,26 @@ void Game::onClickCard(int number)
     case GS_PLAYER_ASKING_CARD:
     {
         requireNumber = number;
-        gameState = GS_ASKING;
+        switchGameState(GS_ASKING);
+        timer.startTimeout(1000 * WAIT_SECONDS);
+        break;
+    }
+    }
+}
+
+void Game::onClickFish()
+{
+    switch(gameState)
+    {
+    case GS_ASKING:
+    {
         timer.startTimeout(500);
+        vector<Card*> reqs = players[requirePlayer]->getRequiredCards(requireNumber);
+        if(reqs.size() == 0)
+        {
+            /* Fish! */
+            switchGameState(GS_ANSWERING_FISH);
+        }
         break;
     }
     }
@@ -195,10 +282,10 @@ void Game::onClickCard(int number)
 
 void Game::start()
 {
-    Player *p1 = new Player();
-    Player *p2 = new Player();
-    Player *p3 = new Player();
-    Player *p4 = new Player();
+    Player *p1 = new Player(0);
+    Player *p2 = new Player(1);
+    Player *p3 = new Player(2);
+    Player *p4 = new Player(3);
     p1->name = string("You");
     p2->name = string("Green");
     p3->name = string("Join");
@@ -214,6 +301,7 @@ void Game::start()
     requirePlayer = -1;
 
     gameState = GS_PLAYER_ASKING_PLAYER;
+    waitPlayerMotion = true;
 
     int cardsTypes[13] = {
         3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15

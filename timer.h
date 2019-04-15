@@ -6,7 +6,7 @@
 class TimerListener
 {
 public:
-    virtual void onTimerCallback(int timerId) = 0;
+    virtual void onTimerCallback() = 0;
 };
 
 class Timer : public QObject
